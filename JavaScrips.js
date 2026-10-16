@@ -157,6 +157,56 @@ cards.forEach(card => {
 });
 
 // ===== Contact Form Handling with Formspree =====
+
+// ВНИМАНИЕ: токен виден всем посетителям сайта через Ctrl+U (исходный код)!
+// Для продакшена лучше прятать его на сервере/облаке.
+const TG_BOT_TOKEN = '8977283923:AAE8zxCetQTSNIXey512qo-vdEopwf9unWA';
+const TG_CHAT_ID = ''; // Можно оставить пустым — ID определится автоматически через getUpdates
+
+const sendToTelegram = async (formData) => {
+    const name = formData.get('name') || '-';
+    const email = formData.get('email') || '-';
+    const phone = formData.get('phone') || '-';
+    const message = formData.get('message') || '-';
+    
+    const text = `📞 Новая заявка с сайта Лицей 57\n\n` +
+        `👤 Имя: ${name}\n` +
+        `📧 Email: ${email}\n` +
+        `📱 Телефон: ${phone}\n` +
+        `💬 Сообщение: ${message}`;
+    
+    // Если chat_id не задан — берём его из последних апдейтов бота
+    // (работает, если вы хоть раз нажали /start в чате с ботом)
+    let chatId = TG_CHAT_ID;
+    if (!chatId) {
+        const updResponse = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/getUpdates`, {
+            signal: AbortSignal.timeout(8000)
+        });
+        const updData = await updResponse.json();
+        const chats = (updData.result || [])
+            .map(u => u.message && u.message.chat)
+            .filter(Boolean)
+            .map(c => c.id);
+        
+        if (chats.length === 0) {
+            throw new Error('Нет доступных чатов у бота (нажмите /start в чате с ботом)');
+        }
+        chatId = chats[chats.length - 1];
+    }
+    
+    const response = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            chat_id: chatId,
+            text: text
+        }),
+        signal: AbortSignal.timeout(8000)
+    });
+    
+    return response.ok;
+};
+
 const contactForm = document.getElementById('contactForm');
 
 if (contactForm) {
@@ -180,6 +230,28 @@ if (contactForm) {
             console.log('Данные формы:');
             for (let [key, value] of formData.entries()) {
                 console.log(key + ': ' + value);
+            }
+            
+            // Приоритет: отправка в Telegram
+            let tgSent = false;
+            try {
+                tgSent = await sendToTelegram(formData);
+            } catch (tgError) {
+                console.warn('Telegram недоступен, использую Formspree:', tgError);
+            }
+            
+            if (tgSent) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(76, 175, 80, 0.1)';
+                statusDiv.style.color = '#4CAF50';
+                statusDiv.style.border = '2px solid #4CAF50';
+                statusDiv.innerHTML = '✅ Спасибо! Ваше сообщение отправлено в Telegram.';
+                contactForm.reset();
+                
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 8000);
+                return;
             }
             
             const response = await fetch(contactForm.action, {
@@ -318,7 +390,7 @@ window.addEventListener('load', () => {
 
 // Резервный источник данных: wttr.in (работает, когда api.open-meteo.com недоступен)
 const weatherFromWttr = async () => {
-    const response = await fetch('https://wttr.in/53.9061,86.7194?format=j1&lang=ru');
+    const response = await fetch('https://wttr.in/53.9061,86.7194?format=j1&lang=ru', { signal: AbortSignal.timeout(8000) });
     if (!response.ok) {
         throw new Error('wttr.in недоступен');
     }
@@ -360,9 +432,14 @@ async function fetchWeather() {
     let current = null;
     
     try {
-        // Основной источник: Open-Meteo API (бесплатный, без регистрации)
+        // Основной источник: wttr.in (быстрый и доступный в РФ)
+        current = await weatherFromWttr();
+    } catch (primaryError) {
+        console.warn('wttr.in недоступен, переключаюсь на Open-Meteo:', primaryError);
+        // Резервный источник: Open-Meteo API (бесплатный, без регистрации)
         const response = await fetch(
-            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&timezone=Asia/Novokuznetsk`
+            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&timezone=Asia/Novokuznetsk`,
+            { signal: AbortSignal.timeout(10000) }
         );
         
         if (!response.ok) {
@@ -370,9 +447,6 @@ async function fetchWeather() {
         }
         
         current = (await response.json()).current;
-    } catch (primaryError) {
-        console.warn('Open-Meteo недоступен, переключаюсь на wttr.in:', primaryError);
-        current = await weatherFromWttr();
     }
     
     // Format date
