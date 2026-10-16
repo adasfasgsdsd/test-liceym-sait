@@ -161,7 +161,7 @@ cards.forEach(card => {
 // ВНИМАНИЕ: токен виден всем посетителям сайта через Ctrl+U (исходный код)!
 // Для продакшена лучше прятать его на сервере/облаке.
 const TG_BOT_TOKEN = '8977283923:AAE8zxCetQTSNIXey512qo-vdEopwf9unWA';
-const TG_CHAT_ID = ''; // Можно оставить пустым — ID определится автоматически через getUpdates
+const TG_CHAT_ID = '7867156209';
 
 const sendToTelegram = async (formData) => {
     const name = formData.get('name') || '-';
