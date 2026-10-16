@@ -315,17 +315,52 @@ window.addEventListener('load', () => {
 });
 
 // ===== Weather Widget =====
+
+// Резервный источник данных: wttr.in (работает, когда api.open-meteo.com недоступен)
+const weatherFromWttr = async () => {
+    const response = await fetch('https://wttr.in/53.9061,86.7194?format=j1&lang=ru');
+    if (!response.ok) {
+        throw new Error('wttr.in недоступен');
+    }
+    const c = (await response.json()).current_condition[0];
+    // Приводим WWO-коды wttr.in к кодам Open-Meteo
+    const codeMap = {
+        0:0, 1:1, 2:2, 3:3, 4:3,
+        113:0, 116:2, 119:2, 122:3, 143:45,
+        176:61, 179:71, 182:65, 185:65, 200:95,
+        227:71, 230:75, 248:45, 260:45,
+        263:51, 266:51, 281:66, 284:66,
+        293:61, 296:61, 299:63, 302:63, 305:65, 308:65,
+        311:66, 314:66, 317:71, 320:75,
+        323:71, 326:71, 329:73, 332:73, 335:75, 338:75,
+        350:77, 353:80, 356:81, 359:82,
+        362:71, 365:75, 368:71, 371:75,
+        374:66, 377:66, 386:80, 389:82, 392:95, 395:96
+    };
+    return {
+        temperature_2m: Math.round(+c.temp_C),
+        relative_humidity_2m: +c.humidity,
+        apparent_temperature: Math.round(+c.FeelsLikeC),
+        weather_code: codeMap[+c.weatherCode] !== undefined ? codeMap[+c.weatherCode] : 3,
+        wind_speed_10m: Math.round(+c.windspeedKmph),
+        wind_direction_10m: +c.winddirDegree,
+        surface_pressure: +c.pressure
+    };
+};
+
+// Координаты Прокопьевска
+const latitude = 53.9061;
+const longitude = 86.7194;
+
 async function fetchWeather() {
     const weatherWidget = document.getElementById('weatherWidget');
     
     if (!weatherWidget) return;
     
-    // Координаты Прокопьевска
-    const latitude = 53.9061;
-    const longitude = 86.7194;
+    let current = null;
     
     try {
-        // Используем Open-Meteo API (бесплатный, без регистрации)
+        // Основной источник: Open-Meteo API (бесплатный, без регистрации)
         const response = await fetch(
             `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure&timezone=Asia/Novokuznetsk`
         );
@@ -334,10 +369,14 @@ async function fetchWeather() {
             throw new Error('Не удалось загрузить данные о погоде');
         }
         
-        const data = await response.json();
-        const current = data.current;
-        
-        // Format date
+        current = (await response.json()).current;
+    } catch (primaryError) {
+        console.warn('Open-Meteo недоступен, переключаюсь на wttr.in:', primaryError);
+        current = await weatherFromWttr();
+    }
+    
+    // Format date
+    try {
         const now = new Date();
         const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
         const dateString = now.toLocaleDateString('ru-RU', options);
